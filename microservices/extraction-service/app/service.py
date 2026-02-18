@@ -3,116 +3,121 @@ import spacy
 
 nlp = spacy.load("en_core_web_sm")
 
-BAD_PERSON_WORDS = [
-    "store", "phone", "invoice", "gst", "total",
-    "amount", "date", "payment", "manager", "scan",
-    "electronics", "tax"
-]
+
+def detect_document_type(text: str) -> str:
+    text_lower = text.lower()
+
+    if "income tax department" in text_lower or re.search(r"[A-Z]{5}[0-9]{4}[A-Z]", text):
+        return "pan"
+
+    elif "aadhaar" in text_lower or "uidai" in text_lower or re.search(r"\b\d{4}\s?\d{4}\s?\d{4}\b", text):
+        return "aadhaar"
+
+    elif "passport" in text_lower or re.search(r"\b[A-Z][0-9]{7}\b", text):
+        return "passport"
+
+    elif "driving licence" in text_lower or "driving license" in text_lower:
+        return "driving_license"
+
+    elif "invoice" in text_lower or "bill" in text_lower:
+        return "invoice"
+
+    return "unknown"
 
 
 def extract_entities(text: str):
 
     if not text:
-        return {
-            "customer_name": None,
-            "document_date": None,
-            "amount": None,
-            "id_number": None
-        }
+        return {}
 
-    original_text = text
+    doc_type = detect_document_type(text)
     text_lower = text.lower()
 
     entities = {
+        "document_type": doc_type,
         "customer_name": None,
+        "father_name": None,
         "document_date": None,
+        "dob": None,
         "amount": None,
-        "id_number": None
+        "id_number": None,
+        "aadhaar_number": None,
+        "pan_number": None,
+        "passport_number": None,
+        "dl_number": None
     }
 
-    # ---------------- CUSTOMER NAME ----------------
+    # ---------------- NAME (Common using spaCy) ----------------
+    doc = nlp(text)
+    for ent in doc.ents:
+        if ent.label_ == "PERSON":
+            entities["customer_name"] = ent.text.strip()
+            break
 
-    name_match = re.search(
-        r"customer\s*name\s*[:\-]?\s*([a-z]{2,}\s+[a-z]{2,})",
-        text_lower
-    )
-
-    if name_match:
-        candidate = name_match.group(1).strip()
-
-        STOP_WORDS = [
-            "item", "description", "address",
-            "phone", "city", "invoice", "total"
-        ]
-
-        words = candidate.split()
-        cleaned = []
-
-        for w in words:
-            if w in STOP_WORDS:
-                break
-            cleaned.append(w)
-
-        entities["customer_name"] = " ".join(cleaned)
-
-    else:
-        name_match_alt = re.search(
-            r"cust\w*\s*name\s*[:\-]?\s*([a-z]{2,}\s+[a-z]{2,})",
-            text_lower
-        )
-
-        if name_match_alt:
-            entities["customer_name"] = name_match_alt.group(1).strip()
-
-        else:
-            doc = nlp(original_text)
-            for ent in doc.ents:
-                if ent.label_ == "PERSON":
-                    candidate = ent.text.lower().strip()
-                    if not any(bad in candidate for bad in BAD_PERSON_WORDS):
-                        entities["customer_name"] = candidate
-                        break
-
-    # ---------------- DATE (Improved for OCR) ----------------
+    # ---------------- DATE / DOB ----------------
     date_patterns = [
-        r"\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}",            # 18/02/2026 or 18-02-2026
-        r"\d{4}[\/\-]\d{2}[\/\-]\d{2}",                # 2026-02-18
-        r"\d{1,2}[\s\-][A-Za-z]{3}[\s\-]\d{4}",        # 18 Feb 2026 / 18-Feb-2026
-        r"\d{1,2}[A-Za-z]{3}\d{4}"                     # 18Feb2026
+        r"\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}",
+        r"\d{4}[\/\-]\d{2}[\/\-]\d{2}",
+        r"\d{1,2}[\s\-][A-Za-z]{3}[\s\-]\d{4}"
     ]
 
     for pattern in date_patterns:
-        match = re.search(pattern, original_text, re.I)
+        match = re.search(pattern, text)
         if match:
-            entities["document_date"] = match.group().lower()
+            entities["document_date"] = match.group()
+            entities["dob"] = match.group()
             break
+
+    # ---------------- PAN ----------------
+    pan_match = re.search(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b", text)
+    if pan_match:
+        entities["pan_number"] = pan_match.group()
+        entities["id_number"] = pan_match.group()
+
+    # ---------------- AADHAAR ----------------
+    aadhaar_match = re.search(r"\b\d{4}\s?\d{4}\s?\d{4}\b", text)
+    if aadhaar_match:
+        entities["aadhaar_number"] = aadhaar_match.group()
+        entities["id_number"] = aadhaar_match.group()
+
+    # ---------------- PASSPORT ----------------
+    passport_match = re.search(r"\b[A-Z][0-9]{7}\b", text)
+    if passport_match:
+        entities["passport_number"] = passport_match.group()
+        entities["id_number"] = passport_match.group()
+
+    # ---------------- DRIVING LICENSE ----------------
+    dl_match = re.search(r"\b[A-Z]{2}\d{2}\s?\d{11}\b", text)
+    if dl_match:
+        entities["dl_number"] = dl_match.group()
+        entities["id_number"] = dl_match.group()
 
     # ---------------- INVOICE NUMBER ----------------
-    id_patterns = [
+    invoice_match = re.search(
         r"invoice\s*(number|no)\s*[:\-]?\s*([A-Za-z0-9\-]+)",
-        r"\binv[-\s:]?([A-Za-z0-9\-]+)"
-    ]
-
-    for pattern in id_patterns:
-        match = re.search(pattern, original_text, re.I)
-        if match:
-            extracted = (
-                match.group(2) if len(match.groups()) > 1 else match.group(1)
-            ).strip().lower()
-
-            if extracted not in ["invoice", "oice"]:
-                entities["id_number"] = extracted
-            break
+        text,
+        re.I
+    )
+    if invoice_match:
+        entities["id_number"] = invoice_match.group(2)
 
     # ---------------- AMOUNT ----------------
-    amount_matches = re.findall(
+    amount_match = re.findall(
         r"(grand\s*total|total)[^\d]{0,15}(₹?\s?[\d,]+)",
-        original_text,
+        text,
         re.I
     )
 
-    if amount_matches:
-        entities["amount"] = amount_matches[-1][1].replace(",", "").strip()
+    if amount_match:
+        entities["amount"] = amount_match[-1][1].replace(",", "").strip()
+
+    # ---------------- FATHER NAME (PAN Specific) ----------------
+    father_match = re.search(
+        r"father'?s?\s*name\s*[:\-]?\s*([A-Za-z\s]+)",
+        text,
+        re.I
+    )
+    if father_match:
+        entities["father_name"] = father_match.group(1).strip()
 
     return entities
-
