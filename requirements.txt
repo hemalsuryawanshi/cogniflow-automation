@@ -1,0 +1,9 @@
+
+fastapi
+uvicorn
+easyocr
+paddleocr
+pytesseract
+pdfplumber
+python-multipart
+openai

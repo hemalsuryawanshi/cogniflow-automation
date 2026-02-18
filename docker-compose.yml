@@ -1,0 +1,58 @@
+
+services:
+
+  # ---------------- OCR SERVICE ----------------
+  ocr-service:
+    build:
+      context: ./microservices/ocr-service
+    container_name: ocr-service
+    ports:
+      - "8001:8001"
+    restart: always
+
+  # ---------------- TEXT PREPROCESS SERVICE ----------------
+  text-preprocess-service:
+    build:
+      context: ./microservices/text-preprocess-service
+    container_name: text-preprocess-service
+    ports:
+      - "8002:8002"
+    restart: always
+
+  # ---------------- EXTRACTION SERVICE ----------------
+  extraction-service:
+    build:
+      context: ./microservices/extraction-service
+    container_name: extraction-service
+    ports:
+      - "8006:8006"
+    restart: always
+
+  # ---------------- CONFIDENCE SERVICE ----------------
+  confidence-service:
+    build:
+      context: ./microservices/confidence-service
+    container_name: confidence-service
+    ports:
+      - "8007:8007"
+    restart: always
+
+  # ---------------- API GATEWAY ----------------
+  gateway:
+    build:
+      context: ./gateway
+    container_name: cogniflow-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - OCR_URL=http://ocr-service:8001/ocr
+      - PREPROCESS_URL=http://text-preprocess-service:8002/preprocess
+      - EXTRACT_URL=http://extraction-service:8006/extract
+      - CONFIDENCE_URL=http://confidence-service:8007/confidence
+      - DATABASE_URL=sqlite:///./cogniflow.db
+    depends_on:
+      - ocr-service
+      - text-preprocess-service
+      - extraction-service
+      - confidence-service
+    restart: always
